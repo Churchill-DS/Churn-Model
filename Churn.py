@@ -1,10 +1,8 @@
-# --- Load the trained ML model ---
 import pickle
 import streamlit as st
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 
-
+# --- Load the trained model ---
 try:
     with open('expresso_churn_model.pkl', 'rb') as file:
         model = pickle.load(file)
@@ -12,14 +10,26 @@ except FileNotFoundError:
     st.error("Model file 'expresso_churn_model.pkl' not found. Make sure it's in the same directory as this app.")
     st.stop()
 
-st.title('/content/expresso_churn_model.pkl')
+# --- Load feature names ---
+try:
+    with open('feature_names.pkl', 'rb') as file:
+        feature_names = pickle.load(file)
+except FileNotFoundError:
+    st.error("Feature names file 'feature_names.pkl' not found. Make sure it's in the same directory as this app.")
+    st.stop()
+
+# --- Load label encoders ---
+try:
+    with open('label_encoders.pkl', 'rb') as file:
+        label_encoders = pickle.load(file)
+except FileNotFoundError:
+    st.error("Label encoders file 'label_encoders.pkl' not found. Make sure it's in the same directory as this app.")
+    st.stop()
+
+st.title('Expresso Churn Predictor')
 st.subheader('Enter customer features to predict churn probability')
 
-# --- Create input fields for features ---
-# You need to create input fields for all the features that your model was trained on.
-# The order and type of these inputs should match the data your model expects.
-
-# Example input fields (adjust based on your actual features after preprocessing):
+# --- Input fields ---
 tenure_options = ['K > 24 month', 'I 18-21 month', 'H 15-18 month', 'G 12-15 month',
                   'J 21-24 month', 'F 9-12 month', 'E 6-9 month', 'D 3-6 month',
                   'C 1-3 month', 'B 0-1 month', 'A < 1 month']
@@ -36,24 +46,19 @@ orange = st.number_input('ORANGE', value=0.0)
 tigo = st.number_input('TIGO', value=0.0)
 regularity = st.number_input('REGULARITY', value=0.0)
 
-top_pack_options = ['No_Top_Pack', 'other', 'Data C', 'All Net 500MB Day', ...] # Add all unique values from your training data
+top_pack_options = ['No_Top_Pack', 'other', 'Data C', 'All Net 500MB Day']  # Add all values from training
 top_pack = st.selectbox('TOP_PACK', top_pack_options)
 
 freq_top_pack = st.number_input('FREQ_TOP_PACK', value=0.0)
 
-region_options = ['Dakar', 'Thiès', 'Saint-Louis', ...] # Add all unique region values
+region_options = ['Dakar', 'Thiès', 'Saint-Louis']  # Add all regions from training
 region = st.selectbox('REGION', region_options)
 
-mrg_options = ['NO', 'YES'] # Add unique MRG values
+mrg_options = ['NO', 'YES']
 mrg = st.selectbox('MRG', mrg_options)
 
-# Add input fields for any other features your model uses
-# Remember to handle the encoded categorical features correctly.
-# For Label Encoded features, you'll need to map the user's selection back to the numerical label.
-
-# --- Validation Button ---
+# --- Predict button ---
 if st.button('Predict Churn'):
-    # --- Prepare the input data for the model ---
     input_data = pd.DataFrame({
         'MONTANT': [montant],
         'FREQUENCE_RECH': [frequence_rech],
@@ -70,39 +75,26 @@ if st.button('Predict Churn'):
         'TOP_PACK': [top_pack],
         'REGION': [region],
         'MRG': [mrg],
-        # Add other features here in the same order as they were during training
-        'DATA_VOLUME_MISSING': [0], # Assuming you'll handle this based on user input if needed
-        # ... Add the encoded columns here. You'll need to handle the encoding logic.
+        'DATA_VOLUME_MISSING': [0],  # Add or adjust based on your training setup
     })
 
-    # --- Preprocess the input data to match the training data format ---
-    # If you used Label Encoding, you'll need to perform the same encoding here.
-    # You might need to load the LabelEncoder objects you used during training.
+    # --- Encode categorical features using loaded encoders ---
+    for col in ['TENURE', 'TOP_PACK', 'REGION', 'MRG']:
+        encoder = label_encoders[col]
+        input_data[col] = encoder.transform(input_data[col])
 
-    # Example of manual label encoding (you might need to adjust based on your encoder's fit)
-    label_encoder_tenure = LabelEncoder() # You might need to refit this with all possible values
-    input_data['TENURE'] = label_encoder_tenure.fit_transform(input_data['TENURE'])
-
-    label_encoder_top_pack = LabelEncoder()
-    input_data['TOP_PACK'] = label_encoder_top_pack.fit_transform(input_data['TOP_PACK'])
-
-    label_encoder_region = LabelEncoder()
-    input_data['REGION'] = label_encoder_region.fit_transform(input_data['REGION'])
-
-    label_encoder_mrg = LabelEncoder()
-    input_data['MRG'] = label_encoder_mrg.fit_transform(input_data['MRG'])
-
-
-    # Ensure the order of columns in input_data matches the order during training
-    # Get the feature names the model was trained on (excluding the target)
-    feature_names = list(X_train.columns) # type: ignore
-    input_data = input_data[feature_names]
-
+    # --- Align column order ---
+    try:
+        input_data = input_data[feature_names]
+    except KeyError as e:
+        st.error(f"Input data does not match trained features. Missing: {e}")
+        st.stop()
 
     # --- Make prediction ---
     prediction = model.predict(input_data)
-    probability = model.predict_proba(input_data)[:, 1] # Probability of churn
+    probability = model.predict_proba(input_data)[:, 1]
 
+    # --- Output ---
     st.subheader('Prediction Result:')
     if prediction[0] == 1:
         st.warning(f'This customer is likely to churn (Probability: {probability[0]:.2f})')
